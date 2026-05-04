@@ -1,0 +1,204 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/bootstrap.php';
+
+requireLogin();
+
+if (!canAccessModule('VENTAS_DIARIAS', 'can_view')) {
+    http_response_code(403);
+    echo 'No tienes permiso para ver Ventas Diarias.';
+    exit;
+}
+
+$user = currentUser();
+$appName = config('app.name', 'Maritano - Gestión Comercial');
+$vehicleTypes = $user['allowed_vehicle_type_rows'] ?? [];
+$defaultVehicleType = $user['allowed_vehicle_types'][0] ?? 'VN';
+$assetVersion = '20260427-auto-filtros-credito-1';
+?>
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title><?= e($appName) ?></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="./assets/styles.css?v=<?= e($assetVersion) ?>" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg bg-white border-bottom shadow-sm mb-4">
+    <div class="container-fluid px-4">
+        <span class="navbar-brand fw-semibold"><?= e($appName) ?></span>
+        <div class="collapse navbar-collapse show">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle active" href="#" role="button" data-bs-toggle="dropdown">Gestión Comercial</a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item active" href="./index.php">Ventas Diarias</a></li>
+                        <li><a class="dropdown-item" href="./inventory.php">Inventario</a></li>
+                        <li><span class="dropdown-item-text text-secondary">Ganancias (pendiente)</span></li>
+                        <li><span class="dropdown-item-text text-secondary">Estado de Resultados (pendiente)</span></li>
+                    </ul>
+                </li>
+                <?php if (hasRole('ADMIN')): ?>
+                    <li class="nav-item"><a class="nav-link" href="./admin/users.php">Administración</a></li>
+                <?php endif; ?>
+            </ul>
+            <div class="d-flex align-items-center gap-3 small">
+                <div>
+                    <div class="text-secondary">Usuario</div>
+                    <div class="fw-semibold"><?= e($user['full_name']) ?></div>
+                </div>
+                <a href="./logout.php" class="btn btn-outline-secondary btn-sm">Salir</a>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid px-4 pb-4">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
+        <div>
+            <h1 class="h3 mb-1">Ventas Diarias</h1>
+            <div class="text-secondary">Fuente: SQL Server SIGA. Fecha de análisis: <strong>FECFAC</strong>.</div>
+            <?php if (!empty($vehicleTypes)): ?>
+                <div class="mt-3">
+                    <div class="btn-group" role="group" aria-label="Tipo de negocio" id="vehicleTypeTabs">
+                        <?php foreach ($vehicleTypes as $vehicleType): ?>
+                            <?php $code = (string)$vehicleType['code']; ?>
+                            <button type="button" class="btn btn-outline-primary vehicle-type-tab <?= $code === $defaultVehicleType ? 'active' : '' ?>" data-vehicle-type="<?= e($code) ?>">
+                                <?= e((string)$vehicleType['name']) ?>
+                            </button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+            <div class="small text-secondary mt-2">Marcas permitidas: <?= !empty($user['allowed_brands']) ? e(implode(', ', $user['allowed_brands'])) : 'Todas las configuradas' ?></div>
+        </div>
+        <div class="auto-refresh-box justify-content-lg-end">
+            <div>
+                <div class="small text-secondary">Modo de comparación</div>
+                <div id="comparisonMode" class="fw-semibold">Cargando...</div>
+            </div>
+            <div>
+                <div class="small text-secondary">Tipo activo</div>
+                <div class="fw-semibold"><span id="activeVehicleTypeLabel">-</span></div>
+            </div>
+            <div>
+                <label for="refreshInterval" class="small text-secondary d-block">Refresco automático</label>
+                <select class="form-select form-select-sm" id="refreshInterval" name="refresh_interval">
+                    <option value="60">Cada 1 minuto</option>
+                    <option value="120">Cada 2 minutos</option>
+                    <option value="0">Desactivado</option>
+                </select>
+            </div>
+            <div>
+                <div class="small text-secondary">Última actualización</div>
+                <div class="last-updated" id="lastUpdatedAt">-</div>
+            </div>
+            <div>
+                <div class="small text-secondary">Estado</div>
+                <div id="autoRefreshStatus" class="status-pill">Esperando datos</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4 filters-card">
+        <div class="card-body">
+            <form id="filtersForm" class="row g-3">
+                <input type="hidden" id="vehicle_type" name="vehicle_type" value="<?= e($defaultVehicleType) ?>">
+                <div class="col-12 col-md-2">
+                    <label class="form-label">Mes</label>
+                    <input type="month" class="form-control" id="month" name="month">
+                </div>
+                <div class="col-12 col-md-2">
+                    <label class="form-label">Marca</label>
+                    <select class="form-select" id="brand" name="brand">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label">Vendedor</label>
+                    <select class="form-select" id="seller" name="seller">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label">Sucursal</label>
+                    <select class="form-select" id="branch" name="branch">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-2">
+                    <label class="form-label">Ciudad</label>
+                    <select class="form-select" id="city" name="city">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
+                    <button class="btn btn-outline-secondary" type="button" id="resetFilters">Limpiar filtros</button>
+                    <span class="small text-secondary">Los filtros se aplican automáticamente.</span>
+                    <span id="autoRefreshMessage" class="change-badge d-none">Datos actualizados automáticamente</span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="errorBox" class="alert alert-danger d-none"></div>
+
+    <div class="row g-3 mb-4" id="kpisRow">
+        <div class="col-12 col-md-6 col-xl"><div class="card kpi-card shadow-sm"><div class="card-body"><div class="kpi-label">Unidades facturadas</div><div class="kpi-value" id="kpiUnits">-</div><div class="kpi-sub" id="kpiUnitsDelta">-</div></div></div></div>
+        <div class="col-12 col-md-6 col-xl"><div class="card kpi-card shadow-sm"><div class="card-body"><div class="kpi-label">Venta total</div><div class="kpi-value" id="kpiTotal">-</div><div class="kpi-sub" id="kpiTotalDelta">-</div></div></div></div>
+        <div class="col-12 col-md-6 col-xl"><div class="card kpi-card shadow-sm"><div class="card-body"><div class="kpi-label">Créditos totales</div><div class="kpi-value" id="kpiCredits">-</div><div class="kpi-sub" id="kpiCreditsDelta">-</div></div></div></div>
+        <div class="col-12 col-md-6 col-xl"><div class="card kpi-card shadow-sm"><div class="card-body"><div class="kpi-label">Penetración crédito</div><div class="kpi-value" id="kpiCreditPenetration">-</div><div class="kpi-sub" id="kpiCreditPenetrationDelta">-</div></div></div></div>
+        <div class="col-12 col-md-6 col-xl"><div class="card kpi-card shadow-sm"><div class="card-body"><div class="kpi-label">Vendedores activos</div><div class="kpi-value" id="kpiSellers">-</div><div class="kpi-sub" id="kpiSellersDelta">-</div></div></div></div>
+        <div class="col-12 col-md-6 col-xl"><div class="card kpi-card shadow-sm"><div class="card-body"><div class="kpi-label">Sucursales activas</div><div class="kpi-value" id="kpiBranches">-</div><div class="kpi-sub" id="kpiBranchesDelta">-</div></div></div></div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-xl-7"><div class="card shadow-sm h-100"><div class="card-header bg-white">Venta diaria comparada</div><div class="card-body"><canvas id="dailySalesChart" height="120"></canvas></div></div></div>
+        <div class="col-12 col-xl-5"><div class="card shadow-sm h-100"><div class="card-header bg-white">Unidades por marca</div><div class="card-body"><canvas id="brandsChart" height="120"></canvas></div></div></div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-xl-6"><div class="card shadow-sm h-100"><div class="card-header bg-white">Top vendedores del período</div><div class="card-body"><canvas id="sellersChart" height="140"></canvas></div></div></div>
+        <div class="col-12 col-xl-6"><div class="card shadow-sm h-100"><div class="card-header bg-white">Sucursales y ciudad</div><div class="card-body"><canvas id="branchesChart" height="140"></canvas></div></div></div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <span>Detalle de facturados</span>
+            <span class="small text-secondary">máximo 200 filas</span>
+        </div>
+        <div class="card-body table-responsive">
+            <table class="table table-sm align-middle table-report" id="detailTable">
+                <thead>
+                <tr>
+                    <th>Fecha factura</th>
+                    <th>Factura</th>
+                    <th>Nota venta</th>
+                    <th>Crédito</th>
+                    <th>Marca</th>
+                    <th>Modelo</th>
+                    <th>Vendedor</th>
+                    <th>Sucursal</th>
+                    <th>Ciudad</th>
+                    <th>Comuna</th>
+                    <th class="text-end">Total venta</th>
+                    <th class="text-end">Total neto</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+window.APP_DEFAULT_MONTH = '<?= (new DateTimeImmutable('first day of this month'))->format('Y-m') ?>';
+window.APP_DEFAULT_VEHICLE_TYPE = '<?= e($defaultVehicleType) ?>';
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="./assets/app.js?v=<?= e($assetVersion) ?>"></script>
+</body>
+</html>

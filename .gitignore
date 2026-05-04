@@ -1,0 +1,22 @@
+config.php
+.env
+*.log
+.DS_Store
+.vscode/
+node_modules/
+vendor/
+cache/
+tmp/
+backups/
+
+# Credenciales reales
+config.php
+**/config.php
+
+# Copia/backup del proyecto, no versionar
+maritano_dashboard_php_dualdb/
+
+# Backups manuales
+*.back
+*.bak
+*.old
