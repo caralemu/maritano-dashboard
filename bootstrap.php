@@ -30,9 +30,52 @@ date_default_timezone_set($config['timezone'] ?? 'America/Santiago');
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     $sessionName = $config['session_name'] ?? 'MARITANO_SESSID';
+
+    /*
+     * Sesión extendida.
+     * Por defecto queda en 1 año.
+     * También puedes definirlo en config.php así:
+     *
+     * 'session' => [
+     *     'lifetime_seconds' => 31536000,
+     * ],
+     */
+    $sessionConfig = $config['session'] ?? [];
+    $sessionLifetime = (int)($sessionConfig['lifetime_seconds'] ?? 31536000);
+
+    if ($sessionLifetime < 0) {
+        $sessionLifetime = 0;
+    }
+
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+
+    if ($sessionLifetime > 0) {
+        ini_set('session.gc_maxlifetime', (string)$sessionLifetime);
+        ini_set('session.cookie_lifetime', (string)$sessionLifetime);
+    }
+
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+
     session_name($sessionName);
+    session_set_cookie_params([
+        'lifetime' => $sessionLifetime,
+        'path' => '/',
+        'secure' => $isHttps,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+
     session_start();
 }
+
+/*
+ * Mantiene viva la sesión.
+ * Cada request normal o llamada AJAX actualiza el archivo de sesión,
+ * evitando que PHP lo trate como inactivo.
+ */
+$_SESSION['last_activity_at'] = time();
 
 $GLOBALS['__app_dbs'] = [];
 
